@@ -1,5 +1,11 @@
 version: 0.2
 
+env:
+  exported-variables:
+    - IMAGE_TAG
+    - REPOSITORY_URI
+    - IMAGE_URI
+
 phases:
   pre_build:
     commands:
@@ -8,14 +14,17 @@ phases:
       - REPOSITORY_URI=$ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks
       - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $REPOSITORY_URI
       - IMAGE_TAG=$CODEBUILD_BUILD_NUMBER
+      - IMAGE_URI=$REPOSITORY_URI:$IMAGE_TAG
+      - echo IMAGE_URI=$IMAGE_URI
 
   build:
     commands:
       - echo Building Docker image...
-      - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
+      - docker build -t $IMAGE_URI .
 
   post_build:
     commands:
-      - echo Pushing Docker image...
-      - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - echo Build completed.
+      - echo Pushing Docker image to ECR...
+      - docker push $IMAGE_URI
+      - echo Build completed successfully.
+      - echo Image pushed: $IMAGE_URI

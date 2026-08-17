@@ -19,6 +19,6 @@ spec:
     spec:
       containers:
         - name: brain-tasks
-          image: 519607124329.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks:v1
+          image: $IMAGE_URI
           ports:
             - containerPort: 80
