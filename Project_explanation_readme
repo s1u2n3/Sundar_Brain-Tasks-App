@@ -1,0 +1,1140 @@
+#### Note :
+This README reflects my actual implementation, learning process, and troubleshooting experience while building this project.
+The deployment issues, errors, debugging steps, and solutions described here are based on issues I encountered and resolved during the project.
+The final document was structured, organized, and formatted with the assistance of AI tools to make the technical flow clearer and easier to read.
+The content is intended to accurately represent my work and understanding rather than hide the use of AI-assisted documentation.
+
+# Brain Tasks App --- AWS Production Deployment
+
+## 1. Project Overview
+
+This project demonstrates the end-to-end deployment of a React
+application to AWS using Docker, Amazon ECR, Amazon EKS, AWS CodeBuild,
+AWS CodePipeline, Kubernetes, IAM, and CloudWatch.
+
+### End-to-end architecture
+
+``` text
+Developer
+   |
+   | git push
+   v
+GitHub
+   |
+   v
+AWS CodePipeline
+   |
+   v
+AWS CodeBuild
+   |
+   | Docker build
+   | Docker tag
+   | Docker push
+   v
+Amazon ECR
+   |
+   v
+CodePipeline EKS Deploy
+   |
+   | kubectl apply
+   v
+Amazon EKS
+   |
+   +--> Kubernetes Deployment
+   |        |
+   |        v
+   |      Pod
+   |
+   +--> Kubernetes Service
+            |
+            v
+       AWS LoadBalancer
+            |
+            v
+         Browser
+
+Monitoring:
+EKS -> Fluent Bit -> CloudWatch Logs
+```
+
+------------------------------------------------------------------------
+
+## 2. Technologies
+
+### Application
+
+-   React
+-   Node.js
+-   Nginx
+-   Docker
+
+### AWS
+
+-   Amazon ECR
+-   Amazon EKS
+-   AWS CodeBuild
+-   AWS CodePipeline
+-   IAM
+-   Amazon CloudWatch
+-   EKS Pod Identity
+
+### Kubernetes
+
+-   Deployment
+-   Service
+-   Pods
+-   kubectl
+-   eksctl
+
+### Version Control
+
+-   Git
+-   GitHub
+
+------------------------------------------------------------------------
+
+# Phase 1 --- Clone and Run the Application
+
+The application was cloned from GitHub:
+
+``` bash
+git clone https://github.com/Vennilavanguvi/Brain-Tasks-App.git
+cd Brain-Tasks-App
+```
+
+The application was first verified locally before containerization.
+
+The application runs on port `3000`.
+
+Example:
+
+``` bash
+npm install
+npm start
+```
+
+The goal of this phase was to confirm that the application itself works
+before introducing Docker and AWS.
+
+------------------------------------------------------------------------
+
+# Phase 2 --- Dockerization
+
+A Dockerfile was created to package the React application.
+
+The production flow is:
+
+``` text
+React source
+   |
+npm build
+   |
+Production static files
+   |
+Nginx
+   |
+Container
+```
+
+Docker provides a consistent and portable application package that can
+be deployed to Kubernetes.
+
+------------------------------------------------------------------------
+
+# Phase 3 --- Build and Test the Docker Image
+
+The Docker image was built locally:
+
+``` bash
+docker build -t brain-tasks .
+```
+
+The image was tested with:
+
+``` bash
+docker run -p 3000:80 brain-tasks
+```
+
+The application was then verified through the browser.
+
+------------------------------------------------------------------------
+
+# Phase 4 --- Amazon ECR
+
+An Amazon ECR repository was created:
+
+``` text
+sundar-brain-tasks
+```
+
+The repository URI follows:
+
+``` text
+<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/sundar-brain-tasks
+```
+
+Example:
+
+``` text
+519607124329.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks
+```
+
+## Authenticate Docker with ECR
+
+``` bash
+aws ecr get-login-password --region ap-south-1 |
+docker login --username AWS --password-stdin 519607124329.dkr.ecr.ap-south-1.amazonaws.com
+```
+
+## Tag the image
+
+``` bash
+docker tag brain-tasks:latest 519607124329.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks:latest
+```
+
+## Push the image
+
+``` bash
+docker push 519607124329.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks:latest
+```
+
+ECR stores the Docker images used by EKS.
+
+------------------------------------------------------------------------
+
+# Phase 5 --- Amazon EKS
+
+An EKS cluster was created using `eksctl`.
+
+Cluster:
+
+``` text
+brain-tasks-eks
+```
+
+Region:
+
+``` text
+ap-south-1
+```
+
+Example:
+
+``` bash
+export AWS_PROFILE=newaws
+eksctl create cluster -f eks-cluster.yml
+```
+
+The cluster provides the Kubernetes control plane and worker
+infrastructure required to run the application.
+
+------------------------------------------------------------------------
+
+# Phase 6 --- Configure kubectl and Verify EKS
+
+The local kubectl configuration was updated:
+
+``` bash
+aws eks update-kubeconfig --region ap-south-1 --name brain-tasks-eks
+```
+
+Verify nodes:
+
+``` bash
+kubectl get nodes
+```
+
+The worker node should show:
+
+``` text
+Ready
+```
+
+------------------------------------------------------------------------
+
+# Phase 7 --- Kubernetes Deployment
+
+A `deployment.yaml` file was created.
+
+The Deployment manages the application Pods.
+
+``` text
+Deployment
+    |
+    v
+ReplicaSet
+    |
+    v
+Pod
+    |
+    v
+Docker Container
+```
+
+The deployment manifest uses an image placeholder:
+
+``` yaml
+image: IMAGE_URI
+```
+
+During the CodePipeline deployment stage, `IMAGE_URI` is replaced with
+the actual ECR image URI and tag.
+
+For example:
+
+``` text
+519607124329.dkr.ecr.ap-south-1.amazonaws.com/sundar-brain-tasks:9
+```
+
+------------------------------------------------------------------------
+
+# Phase 8 --- Kubernetes Service
+
+A `service.yaml` file was created to expose the application.
+
+The Service uses a LoadBalancer:
+
+``` text
+Internet
+   |
+   v
+AWS LoadBalancer
+   |
+   v
+Kubernetes Service
+   |
+   v
+Application Pod
+```
+
+This gives the application an external endpoint that can be opened in a
+browser.
+
+------------------------------------------------------------------------
+
+# Phase 9 --- Test Kubernetes Manifests
+
+The Kubernetes manifests can be tested manually:
+
+``` bash
+kubectl apply -f deployment.yaml -f service.yaml
+```
+
+Verify:
+
+``` bash
+kubectl get deployments
+kubectl get pods
+kubectl get svc
+```
+
+Application logs:
+
+``` bash
+kubectl logs -l app=brain-tasks
+```
+
+This proves that the Kubernetes configuration works independently of the
+CI/CD pipeline.
+
+------------------------------------------------------------------------
+
+# Phase 10 --- GitHub Version Control
+
+The project was maintained in GitHub.
+
+Typical workflow:
+
+``` bash
+git add .
+git commit -m "Update application"
+git push origin main
+```
+
+The `main` branch is used by CodePipeline as the source.
+
+------------------------------------------------------------------------
+
+# Phase 11 --- AWS CodeBuild
+
+AWS CodeBuild builds the Docker image and pushes it to ECR.
+
+The build process is defined in:
+
+``` text
+buildspec.yml
+```
+
+High-level flow:
+
+``` text
+Source
+  |
+  v
+CodeBuild
+  |
+  +--> Authenticate with ECR
+  |
+  +--> Docker build
+  |
+  +--> Tag image
+  |
+  +--> Push image
+  |
+  v
+ECR
+```
+
+The buildspec contains phases such as:
+
+``` yaml
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+
+  build:
+    commands:
+      - echo Building Docker image...
+      - docker build -t $IMAGE_URI .
+
+  post_build:
+    commands:
+      - echo Pushing Docker image to ECR...
+      - docker push $IMAGE_URI
+```
+
+The image tag uses the CodeBuild build number, allowing the ECR image to
+be traced back to a build.
+
+Example:
+
+``` text
+sundar-brain-tasks:9
+```
+
+------------------------------------------------------------------------
+
+# Phase 12 --- CodeBuild IAM Permissions
+
+CodeBuild uses an IAM service role.
+
+The role provides the permissions required to authenticate with ECR and
+push Docker images.
+
+The basic model is:
+
+``` text
+CodeBuild
+   |
+   v
+IAM Role
+   |
+   +--> ECR permissions
+   +--> Other required AWS permissions
+```
+
+IAM permissions should follow least privilege.
+
+------------------------------------------------------------------------
+
+# Phase 13 --- AWS CodePipeline
+
+CodePipeline connects the source, build, and deployment stages.
+
+``` text
+Source
+   |
+   v
+Build
+   |
+   v
+Deploy
+```
+
+### Source
+
+GitHub repository:
+
+``` text
+s1u2n3/Sundar_Brain-Tasks-App
+```
+
+Branch:
+
+``` text
+main
+```
+
+### Build
+
+AWS CodeBuild project:
+
+``` text
+brain-tasks-build
+```
+
+### Deploy
+
+Amazon EKS cluster:
+
+``` text
+brain-tasks-eks
+```
+
+------------------------------------------------------------------------
+
+# Phase 14 --- Complete CI/CD Flow
+
+A normal code change follows:
+
+``` bash
+git add .
+git commit -m "Update application"
+git push origin main
+```
+
+Then:
+
+``` text
+GitHub
+  |
+  v
+CodePipeline
+  |
+  v
+CodeBuild
+  |
+  +--> Docker build
+  |
+  +--> ECR push
+  |
+  v
+EKS Deploy
+  |
+  +--> update-kubeconfig
+  |
+  +--> replace IMAGE_URI
+  |
+  +--> kubectl apply
+  |
+  +--> kubectl rollout status
+  |
+  v
+Updated application
+```
+
+No manual Docker push or manual kubectl apply is required for normal
+deployments.
+
+------------------------------------------------------------------------
+
+# Phase 15 --- EKS Deployment Through CodePipeline
+
+The deployment stage performs operations similar to:
+
+``` bash
+aws eks update-kubeconfig --region ap-south-1 --name brain-tasks-eks
+```
+
+Then:
+
+``` bash
+kubectl apply -f deployment.yaml -f service.yaml -n default
+```
+
+Then it waits for the rollout:
+
+``` bash
+kubectl rollout status -w deployment.apps/brain-tasks-deployment -n default
+```
+
+This ensures the pipeline waits for the Kubernetes Deployment to
+successfully roll out.
+
+------------------------------------------------------------------------
+
+# Phase 16 --- EKS IAM Access
+
+The CodePipeline deployment role needs access to the EKS cluster.
+
+There are two separate concepts:
+
+### AWS IAM
+
+Controls AWS API permissions.
+
+### Kubernetes authorization
+
+Controls what an authenticated identity can do inside the cluster.
+
+The deployment role was added to the EKS access configuration so that
+the pipeline could execute Kubernetes operations.
+
+Conceptually:
+
+``` text
+CodePipeline IAM Role
+       |
+       v
+EKS authentication
+       |
+       v
+Kubernetes authorization
+       |
+       v
+kubectl apply
+```
+
+------------------------------------------------------------------------
+
+# Phase 17 --- CodeBuild YAML Troubleshooting
+
+An initial build failed with an error similar to:
+
+``` text
+Expected Commands[] to be of string type
+```
+
+The cause was invalid YAML structure under `commands`.
+
+Correct structure:
+
+``` yaml
+commands:
+  - echo "Building..."
+  - docker build -t $IMAGE_URI .
+  - docker push $IMAGE_URI
+```
+
+Each item under `commands` must be a command string.
+
+After correcting `buildspec.yml`, CodeBuild completed successfully.
+
+------------------------------------------------------------------------
+
+# Phase 18 --- EKS CrashLoopBackOff Troubleshooting
+
+During an early deployment, the Pod entered:
+
+``` text
+CrashLoopBackOff
+```
+
+Pod logs showed:
+
+``` text
+exec /docker-entrypoint.sh: exec format error
+```
+
+The container image architecture was investigated.
+
+The EKS worker node was:
+
+``` text
+amd64
+```
+
+while the Docker image was built as:
+
+``` text
+linux/arm64
+```
+
+This produced an architecture mismatch:
+
+``` text
+Docker image
+linux/arm64
+      X
+      |
+      v
+EKS node
+linux/amd64
+```
+
+The image was rebuilt for the correct architecture.
+
+Example:
+
+``` bash
+docker buildx build --platform linux/amd64 -t <ECR_URI>:<TAG> --push .
+```
+
+A multi-platform image can also be built:
+
+``` bash
+docker buildx build --platform linux/amd64,linux/arm64 -t <ECR_URI>:<TAG> --push .
+```
+
+The important principle is:
+
+``` text
+Docker image architecture
+          |
+          v
+must be compatible with
+          |
+          v
+EKS node architecture
+```
+
+After correcting the image architecture, the application successfully
+started on EKS.
+
+------------------------------------------------------------------------
+
+# Phase 19 --- Successful EKS Deployment
+
+The successful pipeline performed:
+
+1.  Download source
+2.  Run CodeBuild
+3.  Build Docker image
+4.  Push image to ECR
+5.  Connect to EKS
+6.  Replace `IMAGE_URI`
+7.  Apply Kubernetes manifests
+8.  Wait for rollout
+9.  Expose application through LoadBalancer
+
+The application was then accessible through the browser.
+
+------------------------------------------------------------------------
+
+# Phase 20 --- CloudWatch Monitoring
+
+CloudWatch monitoring was added for EKS using:
+
+``` text
+amazon-cloudwatch-observability
+```
+
+The EKS Pod Identity agent was also installed:
+
+``` text
+eks-pod-identity-agent
+```
+
+The CloudWatch components were verified:
+
+``` bash
+kubectl get pods -n amazon-cloudwatch
+```
+
+The environment included:
+
+``` text
+amazon-cloudwatch-observability-controller-manager
+cloudwatch-agent
+fluent-bit
+```
+
+All were verified as running.
+
+------------------------------------------------------------------------
+
+# Phase 21 --- CloudWatch IAM and Pod Identity
+
+Fluent Bit runs inside EKS and needs AWS permissions to send logs to
+CloudWatch.
+
+A dedicated IAM role was created:
+
+``` text
+EKS-CloudWatch-Agent-Role
+```
+
+The AWS-managed policy attached to the role is:
+
+``` text
+CloudWatchAgentServerPolicy
+```
+
+An EKS Pod Identity association connects:
+
+``` text
+Namespace:
+amazon-cloudwatch
+
+Service Account:
+cloudwatch-agent
+```
+
+to:
+
+``` text
+EKS-CloudWatch-Agent-Role
+```
+
+The resulting flow is:
+
+``` text
+EKS
+ |
+ +--> Fluent Bit
+       |
+       | Pod Identity
+       v
+EKS-CloudWatch-Agent-Role
+       |
+       v
+CloudWatchAgentServerPolicy
+       |
+       v
+CloudWatch Logs
+```
+
+------------------------------------------------------------------------
+
+# Phase 22 --- CloudWatch Troubleshooting
+
+Initially Fluent Bit produced:
+
+``` text
+AccessDeniedException
+Failed to create log stream
+Failed to send events
+```
+
+This showed that the CloudWatch workload did not have sufficient
+permissions.
+
+The problem was resolved by configuring:
+
+1.  EKS Pod Identity agent
+2.  IAM role
+3.  CloudWatchAgentServerPolicy
+4.  Pod Identity association
+
+After the configuration, EKS application logs appeared in CloudWatch.
+
+A temporary:
+
+``` text
+OperationAbortedException
+```
+
+was also observed during concurrent log-group creation. This is
+different from `AccessDeniedException` and indicates a conflicting
+CloudWatch resource operation rather than a missing IAM permission.
+
+------------------------------------------------------------------------
+
+# Phase 23 --- CloudWatch Application Logs
+
+The final monitoring path is:
+
+``` text
+Application Pod
+      |
+      v
+Container stdout/stderr
+      |
+      v
+Fluent Bit
+      |
+      v
+CloudWatch Logs
+```
+
+CloudWatch provides visibility into the deployed workload.
+
+The environment also contains CodeBuild and CodePipeline log groups.
+
+Examples:
+
+``` text
+/aws/codebuild/brain-tasks-build
+/aws/codepipeline/brain-tasks-pipeline
+```
+
+------------------------------------------------------------------------
+
+# Phase 24 --- Verification Commands
+
+## EKS cluster
+
+``` bash
+aws eks describe-cluster --name brain-tasks-eks --region ap-south-1
+```
+
+## Nodes
+
+``` bash
+kubectl get nodes
+```
+
+## Pods
+
+``` bash
+kubectl get pods
+```
+
+## Pods with node information
+
+``` bash
+kubectl get pods -o wide
+```
+
+## Deployment
+
+``` bash
+kubectl get deployments
+```
+
+## Service
+
+``` bash
+kubectl get svc
+```
+
+## Pod details
+
+``` bash
+kubectl describe pod <pod-name>
+```
+
+## Application logs
+
+``` bash
+kubectl logs <pod-name>
+```
+
+## Rollout status
+
+``` bash
+kubectl rollout status deployment/brain-tasks-deployment
+```
+
+## CloudWatch components
+
+``` bash
+kubectl get pods -n amazon-cloudwatch
+```
+
+## Fluent Bit logs
+
+``` bash
+kubectl logs -n amazon-cloudwatch daemonset/fluent-bit --tail=50
+```
+
+## EKS add-ons
+
+``` bash
+aws eks list-addons --cluster-name brain-tasks-eks --region ap-south-1
+```
+
+## ECR images
+
+``` bash
+aws ecr list-images --repository-name sundar-brain-tasks --region ap-south-1
+```
+
+## CloudWatch log groups
+
+``` bash
+aws logs describe-log-groups --region ap-south-1 --query 'logGroups[*].logGroupName'
+```
+
+------------------------------------------------------------------------
+
+# Phase 25 --- Production Considerations
+
+The project demonstrates a production-style deployment, but a larger
+production environment could additionally use:
+
+-   HTTPS/TLS
+-   Custom domain
+-   Route 53
+-   AWS Load Balancer Controller
+-   Secrets Manager
+-   Parameter Store
+-   Horizontal Pod Autoscaler
+-   Resource requests and limits
+-   PodDisruptionBudget
+-   Network policies
+-   ECR image scanning
+-   ECR lifecycle policies
+-   More restrictive IAM policies
+-   Separate development, staging, and production environments
+-   Terraform or CloudFormation
+-   Alerting
+-   Backup and disaster recovery
+-   Blue/green or canary deployments
+
+------------------------------------------------------------------------
+
+# Phase 26 --- Security Principles
+
+### IAM
+
+AWS resources use IAM roles rather than hard-coded AWS access keys.
+
+### EKS Pod Identity
+
+Kubernetes workloads can receive AWS permissions without storing AWS
+credentials inside containers.
+
+### ECR
+
+Docker images are stored in a private AWS container registry.
+
+### Least Privilege
+
+IAM roles should contain only the permissions required by the workload.
+
+### Secrets
+
+Application secrets should never be committed to GitHub.
+
+Production secrets should be stored using services such as:
+
+-   AWS Secrets Manager
+-   AWS Systems Manager Parameter Store
+
+------------------------------------------------------------------------
+
+# Phase 27 --- Final Architecture
+
+``` text
+                       GitHub
+                          |
+                       git push
+                          |
+                          v
+                +-------------------+
+                |   CodePipeline    |
+                +-------------------+
+                          |
+                          v
+                +-------------------+
+                |    CodeBuild      |
+                +-------------------+
+                          |
+                    Docker build
+                          |
+                          v
+                +-------------------+
+                |    Amazon ECR     |
+                +-------------------+
+                          |
+                       Image
+                          |
+                          v
+                +-------------------+
+                |    EKS Deploy     |
+                +-------------------+
+                          |
+                    kubectl apply
+                          |
+                          v
+                +-------------------+
+                |    Amazon EKS     |
+                +-------------------+
+                    |           |
+                    v           v
+              Deployment     Service
+                    |           |
+                    v           v
+                   Pod      LoadBalancer
+                    |           |
+                    +-----+-----+
+                          |
+                          v
+                       Browser
+
+Monitoring:
+                   EKS Pod
+                      |
+                      v
+                  Fluent Bit
+                      |
+                      v
+                 CloudWatch
+```
+
+------------------------------------------------------------------------
+
+# Phase 28 --- Submission Screenshot Checklist
+
+## Kubernetes / EKS
+
+1.  EKS cluster showing `Active`
+2.  `kubectl get nodes` showing `Ready`
+3.  `kubectl get pods` showing application Pod running
+4.  `kubectl get deployments`
+5.  `kubectl get svc` showing LoadBalancer
+6.  Application running in browser
+7.  `deployment.yaml`
+8.  `service.yaml`
+
+## CI/CD
+
+9.  CodeBuild successful build
+10. ECR image/tag
+11. CodePipeline successful execution
+12. EKS deployment stage successful
+
+## Monitoring
+
+13. CloudWatch EKS application log group
+14. CloudWatch log events showing EKS application/container logs
+
+------------------------------------------------------------------------
+
+# Final Result
+
+The project demonstrates the complete journey from source code to an
+automated AWS deployment:
+
+``` text
+GitHub
+   |
+   v
+CodePipeline
+   |
+   v
+CodeBuild
+   |
+   v
+Docker Image
+   |
+   v
+Amazon ECR
+   |
+   v
+Amazon EKS
+   |
+   v
+Kubernetes Deployment
+   |
+   v
+Kubernetes Service
+   |
+   v
+AWS LoadBalancer
+   |
+   v
+Browser
+```
+
+Monitoring is integrated through:
+
+``` text
+EKS
+ |
+ v
+CloudWatch Observability
+ |
+ v
+Fluent Bit
+ |
+ v
+CloudWatch Logs
+```
+
+A normal code change can therefore be delivered automatically from
+GitHub to a new Docker image in ECR and then to a new running version of
+the application in EKS, while CloudWatch provides visibility into the
+deployed workload.
